@@ -1,0 +1,22 @@
+#!/bin/bash
+# bin/modules/load-auth
+# Configura funções para logs em scripts
+
+export LOG_LEVEL=${LOG_LEVEL:-3}
+
+source use-module colors || true
+
+function log-set-trace()   { export LOG_LEVEL=5;  }
+function log-set-debug()   { export LOG_LEVEL=4;  }
+function log-set-info()    { export LOG_LEVEL=3;  }
+function log-set-success() { export LOG_LEVEL=2;  }
+function log-set-warn()    { export LOG_LEVEL=1;  }
+function log-set-error()   { export LOG_LEVEL=0;  }
+function log-set-off()     { export LOG_LEVEL=-1; }
+
+function log-trace()   { if [[ $LOG_LEVEL -ge 5 ]] && [[ $# -gt 0 ]]; then echo -e "${C_TRACE}$@${C_CLEAR}";   fi; }
+function log-debug()   { if [[ $LOG_LEVEL -ge 4 ]] && [[ $# -gt 0 ]]; then echo -e "${C_DEBUG}$@${C_CLEAR}";   fi; }
+function log-info()    { if [[ $LOG_LEVEL -ge 3 ]] && [[ $# -gt 0 ]]; then echo -e "$@";                       fi; }
+function log-success() { if [[ $LOG_LEVEL -ge 2 ]] && [[ $# -gt 0 ]]; then echo -e "${C_SUCCESS}$@${C_CLEAR}"; fi; }
+function log-warn()    { if [[ $LOG_LEVEL -ge 1 ]] && [[ $# -gt 0 ]]; then echo -e "${C_WARN}$@${C_CLEAR}";    fi; }
+function log-error()   { if [[ $LOG_LEVEL -ge 0 ]] && [[ $# -gt 0 ]]; then echo -e "${C_ERROR}$@${C_CLEAR}";   fi; }
