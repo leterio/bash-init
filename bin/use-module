@@ -1,0 +1,14 @@
+#!/bin/bash
+# bin/use-module
+
+# use-module <module_1> [module_2] [module_n]
+# Carrega um submodulo
+
+for submodule in $@; do
+    if [[ ! -x "${BASH_INIT}/bin/modules/$submodule" ]]; then
+        echo -e "${C_ERROR}Módulo \"$submodule\" não encontrado!${C_CLEAR}"
+        continue
+    fi
+
+    source "${BASH_INIT}/bin/modules/$submodule"
+done
