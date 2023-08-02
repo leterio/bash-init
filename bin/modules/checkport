@@ -1,0 +1,38 @@
+#!/bin/bash
+# bin/modules/checkport
+# Configura uma função para teste de conectividade TCP/UDP
+
+# checkport
+#   1: host - Host/FQDN a ser verificado
+#   2: port - Porta a ser verificado
+# [3]: timeout - Tempo, em segundos, para aguardar antes de finalizar a execução
+#          Ex: 1s, 2s, 1m
+# [4]: proto - Protocolo a ser utilizado
+#          Ex: 'tcp' ou 'udp'
+#     Ex: checkport itau.com.br 80 1s tcp
+
+source use-module colors
+
+function checkport() {
+    if [ "$#" -lt "2" ] || [ "$#" -gt "4" ]; then
+        echo "Uso: $0 <host> <port> [timeout] [tcp|udp]"
+        exit 1
+    fi
+
+    re='^[0-9\.]+$' && [[ -n $3 ]] && [[ $3 =~ $re ]] && timeout=${3}s || timeout=3s
+    [ "$3" == "udp" ] || [ "$4" == "udp" ] && datagram="udp" || datagram="tcp"
+
+    (timeout $timeout bash -c "cat < /dev/null > /dev/$datagram/$1/$2") > /dev/null 2>&1
+    outcode=$?
+
+    if [ $outcode -eq 0 ]; then
+        echo -e "$1:$2 $datagram ${C_GREEN}Aberto${C_CLEAR}"
+        exit $outcode
+    elif [ $outcode -eq 124 ]; then
+        echo -e "$1:$2 $datagram ${C_YELLOW}Timeout ($timeout)${C_CLEAR}"
+        exit $outcode
+    else
+        echo -e "$1:$2 $datagram ${C_RED}Fechado${C_CLEAR}"
+        exit $outcode
+    fi
+}
