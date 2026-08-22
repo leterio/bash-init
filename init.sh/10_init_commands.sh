@@ -1,89 +1,151 @@
 #!/bin/bash
-# init.sh/10_init_commands.sh
-# Este script provê funções e comandos básicos para uso do terminal
+#
+# Everyday interactive commands, aliases, and working-directory helpers.
 
-# Listagens
-alias ls='ls --color=auto -A'
-alias ll='ls --color=auto -alF'
+if is_macos; then
+  alias ls='ls -GA'
+  alias ll='ls -GalF'
+else
+  alias ls='ls --color=auto -A'
+  alias ll='ls --color=auto -alF'
+fi
 
-# Reinicia a configuração (BASH)
 alias reinit='source ~/.bashrc'
 
-# CDs
-alias dev="cd $DEV"
-alias proj="cd $DEV/Projetos"
+function dev() {
+  cd "${DEV}" || return 1
+}
 
-# proj
-# *: Nome do projeto
-# Comando para alternar para o diretório de um projeto, buscando nos diretórios de projeto
+#######################################
+# Change to a project directory under PROJECTS.
+# Arguments:
+#   Optional project name or substring. With no argument, cd to the
+#   projects root.
+# Returns:
+#   0 on success or when multiple matches are listed, 1 when none match.
+#######################################
 function proj() {
-    local projName=${1:-''}
-    if [[ "$projName" == "" ]]; then
-        cd "$DEV/Projetos"
-        return 0
+  local proj_name="${1:-}"
+  local projects_root="${PROJECTS}"
+
+  if [[ -z "${proj_name}" ]]; then
+    cd "${projects_root}" || return 1
+    return 0
+  fi
+
+  if [[ -d "${projects_root}/${proj_name}" ]]; then
+    cd "${projects_root}/${proj_name}" || return 1
+    return 0
+  fi
+
+  local -a projects=()
+  readarray -t projects < <(
+    find "${projects_root}" -mindepth 1 -maxdepth 2 -type d \
+      | sed "s#${projects_root}/##g" \
+      | grep -a -- "${proj_name}" || true
+  )
+
+  if [[ ${#projects[@]} -eq 0 ]]; then
+    log_error "No project matched \"${proj_name}\""
+    return 1
+  fi
+
+  if [[ ${#projects[@]} -eq 1 ]]; then
+    cd "${projects_root}/${projects[0]}" || return 1
+    return 0
+  fi
+
+  local project
+  for project in "${projects[@]}"; do
+    if [[ "${project}" == "${proj_name}" ]]; then
+      cd "${projects_root}/${project}" || return 1
+      return 0
     fi
+  done
 
-    if [[ -d "$DEV/Projetos/$projName" ]]; then
-        cd "$DEV/Projetos/$projName"
-        return 0
-    fi
-
-    readarray -t projects < <(find $DEV/Projetos -mindepth 1 -maxdepth 2 -type d | sed "s#$DEV/Projetos/##g" | grep -a "$projName")
-    if [[ ${#projects[@]} -eq 0 ]]; then
-        log-error "Nenhum projeto encontrado com a expressão \"$projName\""
-        return 1
-    fi
-
-    if [[ ${#projects[@]} -eq 1 ]]; then
-        cd "$DEV/Projetos/${projects[0]}"
-        return 0
-    fi
-
-    for project in "${projects[@]}"; do
-        if [[ "$project" == "$projName" ]]; then
-            cd "$DEV/Projetos/$project"
-            return 0
-        fi
-    done
-
-    log-info "Mais de um projeto encontrado com a expressão \"$projName\":"
-    for project in "${projects[@]}"; do
-        log-info "  - $project"
-    done
+  log_info "Multiple projects matched \"${proj_name}\":"
+  for project in "${projects[@]}"; do
+    log_info "  - ${project}"
+  done
+  return 0
 }
 
-# wd
-# [1] - Nome adicional para o diretório de trabalho
-# Alterna para um diretório de trabalho temporário
-# O diretório é criado caso não exista
+#######################################
+# Change to a scratch working directory under DEV/wd, creating it if needed.
+# Arguments:
+#   Optional subdirectory name.
+# Returns:
+#   0 on success, 1 if the path exists and is not a directory.
+#######################################
 function wd() {
-    local targetDirectory="${DEV}/wd"
-    local customWD="$1"
-    [[ -z "$customWD" ]] && targetDirectory="${targetDirectory}/${customWD}"
-    [[ ! -d "$targetDirectory" ]] && {
-        [[ -f "$targetDirectory" ]] && rm -rf "$targetDirectory"
-        mkdir "$targetDirectory"
-    }
-    cd "$targetDirectory"
+  local target_directory="${DEV}/wd"
+  local custom_wd="${1:-}"
+
+  if [[ -n "${custom_wd}" ]]; then
+    target_directory="${target_directory}/${custom_wd}"
+  fi
+
+  if [[ -e "${target_directory}" && ! -d "${target_directory}" ]]; then
+    log_error "Path exists and is not a directory: ${target_directory}"
+    return 1
+  fi
+
+  if [[ ! -d "${target_directory}" ]]; then
+    mkdir -p "${target_directory}" || return 1
+  fi
+
+  cd "${target_directory}" || return 1
 }
 
-# apt-upgrade
-# Atualiza o sistema.
-# Apenas faz sentido quando utilizado com WSL
-function apt-upgrade() {
-    local LOG_FILE='/tmp/apt-upgrade.log'
+if has_command apt; then
+  #######################################
+  # Update the Debian/Ubuntu package set with apt.
+  # Returns:
+  #   0 when every apt step succeeds, non-zero otherwise.
+  #######################################
+  function apt_upgrade() {
+    if ! has_command apt; then
+      log_error "apt is not available"
+      return 1
+    fi
 
-    log-info 'Atualizando repositórios ...'
-    sudo bash -c "apt update > '${LOG_FILE}' 2>&1 || { log-error 'Ocorreu um erro\!'; cat '${LOG_FILE}'; return 1; }"
+    local log_file='/tmp/apt-upgrade.log'
+    : >"${log_file}"
 
-    log-info 'Atualizando sistema ...'
-    sudo bash -c "apt dist-upgrade -y --no-install-recommends >> '${LOG_FILE}' 2>&1 || { log-error 'Ocorreu um erro\!'; cat '${LOG_FILE}'; return 1; }"
+    log_info 'Updating package lists ...'
+    # Redirect as the user; sudo only wraps apt.
+    # shellcheck disable=SC2024
+    if ! sudo apt update >"${log_file}" 2>&1; then
+      log_error 'apt update failed'
+      cat "${log_file}" >&2
+      return 1
+    fi
 
-    log-info 'Removendo pacotes desnecessários ...'
-    sudo bash -c "apt autoremove --purge -y >> '${LOG_FILE}' 2>&1 || { log-error 'Ocorreu um erro!'; cat '${LOG_FILE}'; return 1; }"
+    log_info 'Upgrading packages ...'
+    # shellcheck disable=SC2024
+    if ! sudo apt dist-upgrade -y --no-install-recommends \
+      >>"${log_file}" 2>&1; then
+      log_error 'apt dist-upgrade failed'
+      cat "${log_file}" >&2
+      return 1
+    fi
 
-    log-info 'Limpando pacotes antigos ...'
-    sudo bash -c "apt autoclean -y >> '${LOG_FILE}' 2>&1 || { log-error 'Ocorreu um erro!'; cat '${LOG_FILE}'; return 1; }"
+    log_info 'Removing unused packages ...'
+    # shellcheck disable=SC2024
+    if ! sudo apt autoremove --purge -y >>"${log_file}" 2>&1; then
+      log_error 'apt autoremove failed'
+      cat "${log_file}" >&2
+      return 1
+    fi
 
-    log-success 'Finalizado'
-}
+    log_info 'Cleaning package cache ...'
+    # shellcheck disable=SC2024
+    if ! sudo apt autoclean -y >>"${log_file}" 2>&1; then
+      log_error 'apt autoclean failed'
+      cat "${log_file}" >&2
+      return 1
+    fi
+
+    log_success 'Done'
+  }
+fi

@@ -1,17 +1,46 @@
 #!/bin/bash
-# init.sh/00_init_environment.sh
-# Este script provê as constantes básicas para o shell e demais scripts
+#
+# Host detection helpers.
 
-# PS1_with_git_on_root
-# Ajusta o formato padrão do prompt para incluir a informação da branch atual apenas na raíz do repositório
-function PS1_with_git_on_root() {
-    export PS1='\[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u\[\033[00m\]:\[\033[01;34m\]\w\[\033[01;96m\]$([[ -d '.git' ]] && { unalias git; __git_ps1; })\[\033[00m\] \$ '
+#######################################
+# Return 0 when the current host is WSL.
+# Returns:
+#   0 on WSL, 1 otherwise.
+#######################################
+function is_wsl() {
+  [[ -n "${WSL_DISTRO_NAME:-}" ]] && return 0
+  [[ -r /proc/sys/kernel/osrelease ]] \
+    && grep -qi 'microsoft' /proc/sys/kernel/osrelease \
+    && return 0
+  return 1
 }
 
-# PS1_with_git
-# Ajusta o formato padrão do prompt para incluir a informação da branch atual
-function PS1_with_git() {
-    export PS1='\[\e]0;\u@\h: \w\a\]${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u\[\033[00m\]:\[\033[01;34m\]\w\[\033[01;96m\]$(unalias git; __git_ps1)\[\033[00m\] \$ '
+#######################################
+# Return 0 when the current host is macOS.
+#######################################
+function is_macos() {
+  [[ "$(uname -s)" == "Darwin" ]]
 }
 
-PS1_with_git
+#######################################
+# Return 0 when the current host is Linux.
+#######################################
+function is_linux() {
+  [[ "$(uname -s)" == "Linux" ]]
+}
+
+#######################################
+# Return 0 when the process is running inside a Docker container.
+#######################################
+function is_docker() {
+  [[ -f /.dockerenv ]]
+}
+
+#######################################
+# Return 0 when a command is available on PATH.
+# Arguments:
+#   Command name.
+#######################################
+function has_command() {
+  command -v "${1}" >/dev/null 2>&1
+}

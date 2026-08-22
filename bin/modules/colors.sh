@@ -1,6 +1,6 @@
 #!/bin/bash
-# bin/modules/colors
-# Este script é responsável por habilitar as variáveis de cores utilizados por demais scripts
+#
+# ANSI color and log-level highlight variables for other scripts.
 
 export C_BLACK='\033[30m'
 export C_BLUE='\033[34m'
@@ -13,10 +13,10 @@ export C_YELLOW='\033[33m'
 
 export C_BOLD='\033[1m'
 
-export C_TRACE=$C_CYAN
-export C_DEBUG=$C_MAGENTA
-export C_SUCCESS=$C_GREEN
-export C_WARN=$C_YELLOW
-export C_ERROR=$C_RED
+export C_TRACE="${C_CYAN}"
+export C_DEBUG="${C_MAGENTA}"
+export C_SUCCESS="${C_GREEN}"
+export C_WARN="${C_YELLOW}"
+export C_ERROR="${C_RED}"
 
 export C_CLEAR='\033[0m'

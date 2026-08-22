@@ -1,14 +1,55 @@
 #!/bin/bash
-# bin/use-module
+#
+# Load one or more shell modules from modules/ next to this script.
+# This file must be sourced: `source use-module <module> [module...]`.
+#
+# Tracks loaded modules in LOADED_MODULES (space-separated filenames
+# without .sh). A module already listed is skipped.
 
-# use-module <module_1> [module_2] [module_n]
-# Carrega um submodulo
+if [[ $# -lt 1 ]]; then
+  echo "Usage: source use-module <module> [module...]" >&2
+  return 1
+fi
 
-for submodule in $@; do
-    if [[ ! -x "${BASH_INIT}/bin/modules/$submodule" ]]; then
-        echo -e "${C_ERROR}Módulo \"$submodule\" não encontrado!${C_CLEAR}"
-        continue
+#######################################
+# Source modules from <use-module-dir>/modules if they are not already loaded.
+# Globals:
+#   LOADED_MODULES
+# Arguments:
+#   Module filenames without .sh.
+# Returns:
+#   0 if every module loaded or was already loaded, 1 if any is missing.
+#######################################
+function use_module() {
+  local submodule
+  local module_path
+  local status=0
+  local modules_dir
+  modules_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/modules" && pwd)"
+
+  LOADED_MODULES="${LOADED_MODULES:-}"
+
+  for submodule in "$@"; do
+    if [[ " ${LOADED_MODULES} " == *" ${submodule} "* ]]; then
+      continue
     fi
 
-    source "${BASH_INIT}/bin/modules/$submodule"
-done
+    module_path="${modules_dir}/${submodule}.sh"
+    if [[ ! -f "${module_path}" || ! -r "${module_path}" ]]; then
+      echo -e "${C_ERROR:-}Module \"${submodule}\" not found!${C_CLEAR:-}" >&2
+      status=1
+      continue
+    fi
+    # shellcheck disable=SC1090
+    if ! source "${module_path}"; then
+      status=1
+      continue
+    fi
+    LOADED_MODULES="${LOADED_MODULES:+${LOADED_MODULES} }${submodule}"
+  done
+
+  export LOADED_MODULES
+  return "${status}"
+}
+
+use_module "$@"

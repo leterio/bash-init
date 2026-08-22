@@ -1,18 +1,35 @@
 #!/bin/bash
-# init.sh/19_init_docker.sh
-# Este script provê funções e comandos básicos para uso do docker
+#
+# Docker helpers for interactive shells.
 
-command -v docker 2>&1 >/dev/null || exit 0
+# Require docker. Skip when it is missing so the rest of init can continue.
+if ! has_command docker; then
+  return 0
+fi
 
-# docker-prune
-# Efetua a limpeza de todos os dados sem uso no docker
-function docker-prune() {
-    log-info "Prunning System ..."
-    docker system prune -fa >/dev/null
+#######################################
+# Remove unused Docker data (images, containers, volumes, networks).
+# Returns:
+#   0 when every prune step succeeds, non-zero otherwise.
+#######################################
+function docker_prune() {
+  log_info "Pruning system ..."
+  if ! docker system prune -fa; then
+    log_error "Failed to prune Docker system"
+    return 1
+  fi
 
-    log-info "Prunning Volumes ..."
-    docker volume prune -f >/dev/null
+  log_info "Pruning volumes ..."
+  if ! docker volume prune -f; then
+    log_error "Failed to prune Docker volumes"
+    return 1
+  fi
 
-    log-info "Prunning networks ..."
-    docker network prune -f >/dev/null
+  log_info "Pruning networks ..."
+  if ! docker network prune -f; then
+    log_error "Failed to prune Docker networks"
+    return 1
+  fi
+
+  log_success "Done"
 }

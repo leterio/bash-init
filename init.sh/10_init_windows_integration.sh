@@ -1,54 +1,80 @@
 #!/bin/bash
-# init.sh/10_init_windows_integration.sh
-# Este script provê funções para integração do WSL com o Windows
+#
+# WSL helpers that call Windows binaries (Explorer, VS Code, wslpath).
 
-# Invoca corretamente o WSL (Win)
-alias wsl="/mnt/c/windows/system32/wsl.exe"
+# Windows integration is WSL-only.
+if ! is_wsl; then
+  return 0
+fi
 
-# explorer
-# [1] - Diretório a ser aberto
-# Abre o MSExplorer no diretório solicitado
+alias wsl='/mnt/c/windows/system32/wsl.exe'
+
+#######################################
+# Open Windows Explorer at a path (defaults to the current directory).
+# Arguments:
+#   Optional path to open.
+#######################################
 function explorer() {
-    local target=$(wslpath -w "${1:-.}")
-    log-info "Abrindo explorer ..."
-    (/mnt/c/Windows/explorer.exe "$target" &) >/dev/null 2>&1
+  local target
+  target="$(wslpath -w "${1:-.}")"
+  log_info "Opening Explorer ..."
+  # Explorer.exe often exits 1 even on success.
+  (/mnt/c/Windows/explorer.exe "${target}" &) >/dev/null 2>&1
 }
 
-# code
-# [1] - Diretório ou arquivo a ser aberto
-# Abre o VSCode no windows utilizando os parametros informados
+#######################################
+# Open Windows VS Code, converting the first existing path with wslpath.
+# Arguments:
+#   Optional path and extra Code.exe arguments.
+# Returns:
+#   1 if Code.exe cannot be found.
+#######################################
 function code() {
-    local vscodeBinArr=("/mnt/c/Program Files/Microsoft VS Code/Code.exe" "/mnt/c/Users/$(cmd.exe /C echo %USERNAME% | dos2unix | sed -z 's/\n//g')/AppData/Local/Programs/Microsoft VS Code/Code.exe")
-    local vscodeBin=''
-    for checkBin in "${vscodeBinArr[@]}"; do
-        if [[ -f "$checkBin" ]]; then
-            vscodeBin="$checkBin"
-            break
-        fi
-    done
-    if [[ ! -f "$vscodeBin" ]]; then
-        log-error "Executável do VSCode não encontrado"
-        return 1
-    fi
+  local win_user
+  win_user="$(cmd.exe /C 'echo %USERNAME%' 2>/dev/null | tr -d '\r\n')"
 
-    local target=
-    if [[ $# -gt 0 ]]; then
-        local target=$(wslpath -w "$1")
-        shift
+  local -a vscode_bin_arr=(
+    '/mnt/c/Program Files/Microsoft VS Code/Code.exe'
+    "/mnt/c/Users/${win_user}/AppData/Local/Programs/Microsoft VS Code/Code.exe"
+  )
+  local vscode_bin=''
+  local check_bin
+  for check_bin in "${vscode_bin_arr[@]}"; do
+    if [[ -f "${check_bin}" ]]; then
+      vscode_bin="${check_bin}"
+      break
     fi
+  done
 
-    log-info "Abrindo VSCode ..."
-    ("$vscodeBin" -n "$target" &) >/dev/null 2>&1
+  if [[ ! -f "${vscode_bin}" ]]; then
+    log_error "VS Code executable not found"
+    return 1
+  fi
+
+  local -a vscode_args=()
+  if [[ $# -gt 0 ]]; then
+    if [[ -e "$1" ]]; then
+      vscode_args+=("$(wslpath -w "$1")")
+      shift
+    fi
+    vscode_args+=("$@")
+  fi
+
+  log_info "Opening VS Code ..."
+  ("${vscode_bin}" -n "${vscode_args[@]}" &) >/dev/null 2>&1
 }
 
-# cdw
-# 1 - Diretório em formato Windows
-# Alterna de diretório utilizando o formato utilizado pelo Windows
-#     Ex: cdw 'C:\\Users\\myUser\\Desktop'
+#######################################
+# cd using a Windows-style path.
+# Arguments:
+#   Windows path, for example 'C:\Users\myUser\Desktop'.
+# Returns:
+#   1 if the path is missing.
+#######################################
 function cdw() {
-    [[ $# -ne 1 ]] && {
-        log-error "Um caminho deve ser especificado"
-        return 1
-    }
-    cd "$(wslpath "$1")"
+  if [[ $# -ne 1 ]]; then
+    log_error "A path must be specified"
+    return 1
+  fi
+  cd "$(wslpath "$1")" || return 1
 }

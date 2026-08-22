@@ -1,7 +1,6 @@
 #!/bin/bash
-# init.sh/01_init_base_modules.sh
-# Este script inicializa os módulos base para o shell
+#
+# Load the base shell modules used by later init stages.
 
-source use-module colors
-source use-module logs
-source use-module checkport
+# shellcheck disable=SC1091
+source use-module colors logs checkport

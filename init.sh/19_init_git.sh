@@ -1,234 +1,364 @@
 #!/bin/bash
-# init.sh/19_init_git.sh
-# Este script provê funções auxiliares para uso da ferramenta GIT
+#
+# Git helpers for interactive shells.
 
-# Encaminha todas execuçõe do git para o git-for-windows (Lentidão relacionado as bordas do sistema de arquivos (EXT4 <> NTFS))
-alias lgit="/usr/bin/git"
-alias wgit="git.exe"
-function git-use-wsl() { alias git="/usr/bin/git"; }
-function git-use-win() { alias git="git.exe"; }
+# Require git. Skip when it is missing so the rest of init can continue.
+if ! has_command git; then
+  return 0
+fi
 
-# Bug com o git-use-win usando quando root (PATH?)
-# [[ $(id -u) -eq 0 ]] && git-use-wsl || git-use-win
-git-use-win
+PS1_GIT='\[\033[01;96m\]$(declare -F __git_ps1 >/dev/null && __git_ps1)'
 
-# gst
-# Lista todos os arquivos alterados na workspace.
+if is_wsl; then
+  # git.exe is often faster on NTFS-backed WSL paths.
+  alias lgit='/usr/bin/git'
+  alias wgit='git.exe'
+  function git_use_wsl() { alias git='/usr/bin/git'; }
+  function git_use_win() { alias git='git.exe'; }
+  git_use_win
+fi
+
 alias gst='git status -uall'
 
-# git-log / gclog
-# Exibe a árvore dos commits (do mais novo ao antigo)
-alias git-log='git log --oneline --graph'
-alias gclog='git-log'
-
-# git-log-branch / gclogb
-# Exibe a estrutura da árvore do repositório, focando na branch atual + branchs informadas
-function git-log-branch() { git log --oneline --graph $(git rev-parse --abbrev-ref HEAD) $@; }
-alias gclogb='git-log-branch'
-
-# git-diff
-# Customiza a comparação do git
-alias git-diff='git diff --ignore-space-at-eol --ignore-space-change --ignore-all-space --ignore-blank-lines --word-diff=plain'
-
-# git-show
-# Customiza a exibição do commit atual
-alias git-show='git show --ignore-space-at-eol --ignore-space-change --ignore-all-space --ignore-blank-lines --word-diff=plain'
-
-# git-remove-other-branches
-# Remove todas demais branches do repositório (exceto a atual)
-alias git-remove-other-branches='git branch | grep -v $(git rev-parse --abbrev-ref HEAD) | xargs git branch -D'
-
-# git-pull-all / gfall
-# Atualiza o repositório atual, atualizando todas as branches locais
-function git-pull-all() {
-    local DIRECTORY="${1:-.}"
-    [[ ! -d "$DIRECTORY/.git" ]] && {
-        error "Não é um repositório GIT"
-        return 1
-    }
-
-    local REMOTES=$(git -C "${DIRECTORY}" remote | xargs -n1 echo)
-    log-info "Remotes: ${C_BOLD}${REMOTES}${C_RESET}"
-
-    local CURRENT_LOCAL_BRANCH=$(git -C "${DIRECTORY}" branch -l | awk '/^\*/{print $2}')
-    log-info "Branch atual: ${C_BOLD}${CURRENT_LOCAL_BRANCH}${C_CLEAR}"
-
-    # for all remotes
-    while read REMOTE; do
-        log-info "Atualizando remote ${C_BOLD}${REMOTE}${C_CLEAR} ($(git -C "${DIRECTORY}" remote get-url "${REMOTE}"))"
-        git -C "${DIRECTORY}" remote update $REMOTE >/dev/null 2>&1
-
-        # For all local branch that merges with any on this remote
-        while read MERGES_WITH; do
-            RB=$(echo "$MERGES_WITH" | cut -f1 -d" ")
-            ARB="refs/remotes/$REMOTE/$RB"
-            LB=$(echo "$MERGES_WITH" | cut -f2 -d" ")
-            ALB="refs/heads/$LB"
-            COMMITS_BEHIND=$(($(git -C "${DIRECTORY}" rev-list --count $ALB..$ARB 2>/dev/null) + 0))
-            COMMITS_AHEAD=$(($(git -C "${DIRECTORY}" rev-list --count $ARB..$ALB 2>/dev/null) + 0))
-            if [ "$COMMITS_BEHIND" -gt 0 ]; then
-                if [ "$COMMITS_AHEAD" -gt 0 ]; then
-                    log-info "${C_RED}${LB}${C_CLEAR}: ${COMMITS_BEHIND} <-- ${REMOTE}/${RB} --> ${COMMITS_AHEAD}. ${C_ERROR}O fast-forawrd não pode ser realizado${C_CLEAR}."
-                elif [ "$LB" = "$CURRENT_LOCAL_BRANCH" ]; then
-                    log-info "${C_CYAN}${LB}${C_CLEAR}: ${COMMITS_BEHIND} <-- ${REMOTE}/${RB}. Efetuando o fast-forward."
-                    git -C "${DIRECTORY}" merge -q $ARB >/dev/null
-                else
-                    log-info "${C_CYAN}${LB}${C_CLEAR}: ${COMMITS_BEHIND} <-- ${REMOTE}/${RB}. Resetando a branch local."
-                    git -C "${DIRECTORY}" branch -l -f $LB -t $ARB >/dev/null
-                fi
-            fi
-        done <<<$(git -C "${DIRECTORY}" remote show "$REMOTE" -n | awk '/merges with remote/{print $5" "$1}')
-    done <<<"$REMOTES"
-    log-success "Concluído"
+#######################################
+# Compact commit graph for the current repository.
+#######################################
+function git_log() {
+  git log --oneline --graph "$@"
 }
-alias gfall='git-pull-all'
+alias gclog='git_log'
 
-# git-pull-all-recursive / gfall
-# Atualiza todos os repositórios nos subdiretórios do diretório atual
-function git-pull-all-recursive() {
-    local CURRENT_DIR="$(pwd -P)"
-    log-info "Buscando repositórios em \"${CURRENT_DIR}\" ..."
-
-    local IFS=$'\n'
-    local REPOSITORIES=($(find "${CURRENT_DIR}" \
-        -type d \( -name src -o -name target -o -name .settings -o -name .github \) -prune -o \
-        -type d -name ".git" -print |
-        sed 's#\/.git##g; s#\./##g'))
-    unset IFS
-
-    [[ ${#REPOSITORIES[@]} -eq 0 ]] && {
-        error "Nenhum repositório encontrado."
-        return 0
-    }
-
-    log-info "${C_BOLD}${#REPOSITORIES[@]}${C_CLEAR} repositórios encontrados"
-
-    for REPOSITORY in "${REPOSITORIES[@]}"; do
-        echo -e
-        log-info "${C_BOLD}${REPOSITORY//$CURRENT_DIR\//}${C_CLEAR}: Atualizando repositório"
-        git-pull-all "$REPOSITORY" | sed "s#^#$(echo -e ${C_BOLD})${REPOSITORY//$CURRENT_DIR\//}$(echo -e ${C_CLEAR}): #g"
-    done
-
-    echo -e
-    log-success "Atualização finalizada!"
+#######################################
+# Compact commit graph for the current branch plus extra revisions.
+# Arguments:
+#   Extra revisions or git log options.
+#######################################
+function git_log_branch() {
+  local current
+  current="$(git rev-parse --abbrev-ref HEAD)"
+  git log --oneline --graph "${current}" "$@"
 }
-alias gfallr='git-pull-all-recursive'
+alias gclogb='git_log_branch'
 
-# git-index
-# Com base nos arquivos alterados, permite tomar decisões sobre os arquivos, manipulando o índice do git
-function git-index() {
-    local IGNORE_DELETED=true
-    [[ "##$1" == "##-D" ]] && {
-        IGNORE_DELETED=false
-        shift
-    }
+#######################################
+# git diff that ignores whitespace noise.
+#######################################
+function git_diff() {
+  git diff \
+    --ignore-space-at-eol \
+    --ignore-space-change \
+    --ignore-all-space \
+    --ignore-blank-lines \
+    --word-diff=plain \
+    "$@"
+}
 
-    local UNSTAGED_FILES
-    local IFS=$'\n'
-    [[ $# -gt 0 ]] && UNSTAGED_FILES=($(git status $@ | grep -A1000 "not staged" | grep ": ")) ||
-        UNSTAGED_FILES=($(git status | grep -A1000 "not staged" | grep ": "))
-    unset IFS
+#######################################
+# git show that ignores whitespace noise.
+#######################################
+function git_show() {
+  git show \
+    --ignore-space-at-eol \
+    --ignore-space-change \
+    --ignore-all-space \
+    --ignore-blank-lines \
+    --word-diff=plain \
+    "$@"
+}
 
-    local UNSTAGED_FILES_COUNT=${#UNSTAGED_FILES[@]}
-    if [ "$UNSTAGED_FILES_COUNT" -eq "0" ]; then
-        log-error "Nenhum arquivo está fora do índice."
-        return 1
+#######################################
+# Delete every local branch except the current one.
+#######################################
+function git_remove_other_branches() {
+  local current branch
+  current="$(git rev-parse --abbrev-ref HEAD)"
+  while IFS= read -r branch; do
+    [[ -z "${branch}" || "${branch}" == "${current}" ]] && continue
+    git branch -D "${branch}"
+  done < <(git branch --format='%(refname:short)')
+}
+
+#######################################
+# List git repositories under a directory, skipping common build trees.
+# Arguments:
+#   Root directory to search.
+# Outputs:
+#   Repository paths, one per line.
+#######################################
+function _git_find_repos() {
+  local current_dir="$1"
+  find "${current_dir}" \
+    -type d \( -name src -o -name target -o -name .settings -o -name .github \) \
+    -prune -o \
+    -type d -name '.git' -print \
+    | sed 's#/.git##; s#^\./##'
+}
+
+#######################################
+# Fast-forward every local branch that tracks a remote.
+# Arguments:
+#   Optional repository directory. Defaults to the current directory.
+# Returns:
+#   1 if the path is not a git repository.
+#######################################
+function git_pull_all() {
+  local directory="${1:-.}"
+  if [[ ! -d "${directory}/.git" ]]; then
+    log_error "Not a git repository: ${directory}"
+    return 1
+  fi
+
+  local remotes
+  remotes="$(git -C "${directory}" remote)"
+  if [[ -z "${remotes}" ]]; then
+    log_error "No remotes configured"
+    return 1
+  fi
+
+  log_info "Remotes: ${C_BOLD}${remotes}${C_CLEAR}"
+
+  local current_local_branch
+  current_local_branch="$(git -C "${directory}" rev-parse --abbrev-ref HEAD)"
+  log_info "Current branch: ${C_BOLD}${current_local_branch}${C_CLEAR}"
+
+  local remote remote_url mapping local_branch remote_branch rb
+  local alb arb commits_behind commits_ahead
+  while IFS= read -r remote; do
+    [[ -z "${remote}" ]] && continue
+    remote_url="$(git -C "${directory}" remote get-url "${remote}")"
+    log_info "Updating remote ${C_BOLD}${remote}${C_CLEAR} (${remote_url})"
+    if ! git -C "${directory}" remote update "${remote}"; then
+      log_error "Failed to update remote ${remote}"
+      continue
     fi
 
-    log-info "${C_BOLD}${UNSTAGED_FILES_COUNT}${C_CLEAR} arquivos não indexados."
+    while IFS= read -r mapping; do
+      [[ -z "${mapping}" ]] && continue
+      local_branch="${mapping%% *}"
+      remote_branch="${mapping#* }"
+      if [[ -z "${remote_branch}" || "${remote_branch}" != "${remote}/"* ]]; then
+        continue
+      fi
+      rb="${remote_branch#"${remote}"/}"
+      alb="refs/heads/${local_branch}"
+      arb="refs/remotes/${remote}/${rb}"
+      commits_behind="$(
+        git -C "${directory}" rev-list --count "${alb}..${arb}" 2>/dev/null || echo 0
+      )"
+      commits_ahead="$(
+        git -C "${directory}" rev-list --count "${arb}..${alb}" 2>/dev/null || echo 0
+      )"
 
-    local CUR_IDX=1
-    for CURRENT_FILE_ENTRY in "${UNSTAGED_FILES[@]}"; do
-        local operation=$(echo $CURRENT_FILE_ENTRY | cut -d ":" -f1)
-        local file=$(echo $CURRENT_FILE_ENTRY | cut -d ":" -f2 | awk '{$1=$1};1')
-        while :; do
-            if [ "$operation" == "deleted" ]; then
-                if [ $IGNORE_DELETED == true ]; then
-                    log-info "${C_BOLD}${CUR_IDX}${C_CLEAR}/${C_BOLD}${UNSTAGED_FILES_COUNT}${C_CLEAR} - Arquivo ${C_BOLD}${C_RED}DELETADO${C_CLEAR}: ${C_RED}${file}${C_CLEAR}. Ignorando ..."
-                    break
-                else
-                    log-info "${C_BOLD}${CUR_IDX}${C_CLEAR}/${C_BOLD}${UNSTAGED_FILES_COUNT}${C_CLEAR} - Arquivo ${C_BOLD}${C_RED}DELETADO${C_CLEAR}: ${C_RED}${file}${C_CLEAR}"
-                fi
-            elif [ "$operation" == "modified" ]; then
-                log-info "${C_BOLD}${CUR_IDX}${C_CLEAR}/${C_BOLD}${UNSTAGED_FILES_COUNT}${C_CLEAR} - Arquivo ${C_BOLD}${C_YELLOW}MODIFICADO${C_CLEAR}: ${C_YELLOW}${file}${C_CLEAR}"
-            elif [ "$operation" == "new file" ]; then
-                log-info "${C_BOLD}${CUR_IDX}${C_CLEAR}/${C_BOLD}${UNSTAGED_FILES_COUNT}${C_CLEAR} - Arquivo ${C_BOLD}${C_GREEN}ADICIONADO${C_CLEAR}: ${C_GREEN}${file}${C_CLEAR}"
-            fi
+      if (( commits_behind > 0 )); then
+        if (( commits_ahead > 0 )); then
+          log_info "${C_RED}${local_branch}${C_CLEAR}: ${commits_behind} <-- ${remote}/${rb} --> ${commits_ahead}. ${C_ERROR}Cannot fast-forward${C_CLEAR}."
+        elif [[ "${local_branch}" == "${current_local_branch}" ]]; then
+          log_info "${C_CYAN}${local_branch}${C_CLEAR}: ${commits_behind} <-- ${remote}/${rb}. Fast-forwarding."
+          if ! git -C "${directory}" merge -q "${arb}"; then
+            log_error "Failed to fast-forward ${local_branch}"
+          fi
+        else
+          log_info "${C_CYAN}${local_branch}${C_CLEAR}: ${commits_behind} <-- ${remote}/${rb}. Resetting local branch."
+          if ! git -C "${directory}" branch -l -f "${local_branch}" -t "${arb}"; then
+            log_error "Failed to reset ${local_branch}"
+          fi
+        fi
+      fi
+    done < <(git -C "${directory}" for-each-ref \
+      --format='%(refname:short) %(upstream:short)' refs/heads)
+  done <<< "${remotes}"
 
-            log-info "(${C_BOLD}A${C_CLEAR})ceitar; (${C_BOLD}I${C_CLEAR})gnorar; (${C_BOLD}R${C_CLEAR})everter/Deletar; (${C_BOLD}C${C_CLEAR})omparar; (${C_BOLD}E${C_CLEAR})ditar; (${C_BOLD}S${C_CLEAR})tatus"
-            read -n1 -p "-> " op
-            echo -e
-            if [ "${op^^}" == "A" ]; then
-                git add "$file"
-                break
-            elif [ "${op^^}" == "I" ]; then
-                log-warn "Ignorado."
-                break
-            elif [ "${op^^}" == "R" ]; then
-                log-info "Tem certeza que deseja reverter/deletar o arquivo? (${C_BOLD}S${C_CLEAR})im; (${C_BOLD}N${C_CLEAR})ão?"
-                read -n1 -p "-> " sure
-                echo -e
-                if [ "${sure^^}" == "S" ]; then
-                    if [ "$operation" == "new file" ]; then
-                        rm "$file"
-                    else
-                        git checkout "$file"
-                    fi
-                fi
-                break
-            elif [ "${op^^}" == "C" ]; then
-                clear
-                git-diff "$file"
-            elif [ "${op^^}" == "E" ]; then
-                vi $file
-            elif [ "${op^^}" == "S" ]; then
-                clear
-                git status -uall
-                echo -e "------------------------------------------------------------------------"
+  log_success "Done"
+}
+alias gfall='git_pull_all'
+
+#######################################
+# Run git_pull_all on every git repository under the current directory.
+#######################################
+function git_pull_all_recursive() {
+  local current_dir
+  current_dir="$(pwd -P)"
+  log_info "Looking for repositories in \"${current_dir}\" ..."
+
+  local -a repositories=()
+  readarray -t repositories < <(_git_find_repos "${current_dir}")
+
+  if [[ ${#repositories[@]} -eq 0 ]]; then
+    log_error "No repositories found."
+    return 0
+  fi
+
+  log_info "${C_BOLD}${#repositories[@]}${C_CLEAR} repositories found"
+
+  local repository rel
+  for repository in "${repositories[@]}"; do
+    [[ -z "${repository}" ]] && continue
+    rel="${repository#"${current_dir}"/}"
+    echo
+    log_info "${C_BOLD}${rel}${C_CLEAR}: Updating repository"
+    git_pull_all "${repository}" | sed "s#^#${C_BOLD}${rel}${C_CLEAR}: #g"
+  done
+
+  echo
+  log_success "Update finished!"
+}
+alias gfallr='git_pull_all_recursive'
+
+#######################################
+# Interactively stage, revert, or inspect unstaged files.
+# Arguments:
+#   Optional -D to include deleted files.
+#   Optional paths passed to git status.
+# Returns:
+#   1 when there are no unstaged files.
+#######################################
+function git_index() {
+  local ignore_deleted=true
+  if [[ "${1:-}" == "-D" ]]; then
+    ignore_deleted=false
+    shift
+  fi
+
+  local -a unstaged_ops=()
+  local -a unstaged_files=()
+  local line xy file worktree
+
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    xy="${line:0:2}"
+    file="${line:3}"
+    worktree="${xy:1:1}"
+
+    if [[ "${xy}" == "??" ]]; then
+      unstaged_ops+=("new file")
+      unstaged_files+=("${file}")
+    elif [[ "${worktree}" == "M" ]]; then
+      unstaged_ops+=("modified")
+      unstaged_files+=("${file}")
+    elif [[ "${worktree}" == "D" ]]; then
+      unstaged_ops+=("deleted")
+      unstaged_files+=("${file}")
+    fi
+  done < <(git status --porcelain --untracked-files=all "$@")
+
+  local count="${#unstaged_files[@]}"
+  if (( count == 0 )); then
+    log_error "No unstaged files."
+    return 1
+  fi
+
+  log_info "${C_BOLD}${count}${C_CLEAR} unstaged file(s)."
+
+  local idx operation op sure display_idx
+  for (( idx = 0; idx < count; idx++ )); do
+    operation="${unstaged_ops[idx]}"
+    file="${unstaged_files[idx]}"
+    display_idx=$((idx + 1))
+    while :; do
+      case "${operation}" in
+        deleted)
+          if [[ "${ignore_deleted}" == true ]]; then
+            log_info "${C_BOLD}${display_idx}${C_CLEAR}/${C_BOLD}${count}${C_CLEAR} - ${C_BOLD}${C_RED}DELETED${C_CLEAR}: ${C_RED}${file}${C_CLEAR}. Skipping ..."
+            break
+          fi
+          log_info "${C_BOLD}${display_idx}${C_CLEAR}/${C_BOLD}${count}${C_CLEAR} - ${C_BOLD}${C_RED}DELETED${C_CLEAR}: ${C_RED}${file}${C_CLEAR}"
+          ;;
+        modified)
+          log_info "${C_BOLD}${display_idx}${C_CLEAR}/${C_BOLD}${count}${C_CLEAR} - ${C_BOLD}${C_YELLOW}MODIFIED${C_CLEAR}: ${C_YELLOW}${file}${C_CLEAR}"
+          ;;
+        "new file")
+          log_info "${C_BOLD}${display_idx}${C_CLEAR}/${C_BOLD}${count}${C_CLEAR} - ${C_BOLD}${C_GREEN}ADDED${C_CLEAR}: ${C_GREEN}${file}${C_CLEAR}"
+          ;;
+      esac
+
+      log_info "(${C_BOLD}A${C_CLEAR})ccept; (${C_BOLD}I${C_CLEAR})gnore; (${C_BOLD}R${C_CLEAR})evert/Delete; (${C_BOLD}C${C_CLEAR})ompare; (${C_BOLD}E${C_CLEAR})dit; (${C_BOLD}S${C_CLEAR})tatus"
+      read -r -n1 -p "-> " op
+      echo
+      case "${op^^}" in
+        A)
+          git add -- "${file}"
+          break
+          ;;
+        I)
+          log_warn "Ignored."
+          break
+          ;;
+        R)
+          log_info "Revert/delete this file? (${C_BOLD}Y${C_CLEAR})es; (${C_BOLD}N${C_CLEAR})o"
+          read -r -n1 -p "-> " sure
+          echo
+          if [[ "${sure^^}" == "Y" ]]; then
+            if [[ "${operation}" == "new file" ]]; then
+              rm -- "${file}"
             else
-                log-error "Opção inválida."
+              git checkout -- "${file}"
             fi
-        done
-
-        CUR_IDX=$((${CUR_IDX} + 1))
+          fi
+          break
+          ;;
+        C)
+          clear
+          git_diff -- "${file}"
+          ;;
+        E)
+          "${EDITOR:-vi}" "${file}"
+          ;;
+        S)
+          clear
+          git status -uall
+          echo "------------------------------------------------------------------------"
+          ;;
+        *)
+          log_error "Invalid option."
+          ;;
+      esac
     done
+  done
 }
 
-# git-switch-all
-# Com base no diretório atual, altera a branch corrente de todos os repositórios
-function git-switch-all() {
-    local targetBranch="$1"
-    [[ "${targetBranch}" == "" ]] && { log-error "A branch de destino deve ser especificada\!"; return 1; }
+#######################################
+# Switch every nested git repository to a branch and pull.
+# Arguments:
+#   Target branch name.
+# Returns:
+#   1 if the branch name is missing.
+#######################################
+function git_switch_all() {
+  local target_branch="${1:-}"
+  if [[ -z "${target_branch}" ]]; then
+    log_error "Target branch must be specified"
+    return 1
+  fi
 
-    local CURRENT_DIR="$(pwd -P)"
-    log-info "Buscando repositórios em \"${CURRENT_DIR}\" ..."
+  local current_dir
+  current_dir="$(pwd -P)"
+  log_info "Looking for repositories in \"${current_dir}\" ..."
 
-    local IFS=$'\n'
-    local REPOSITORIES=($(find "${CURRENT_DIR}" \
-        -type d \( -name src -o -name target -o -name .settings -o -name .github \) -prune -o \
-        -type d -name ".git" -print \
-        | sed 's#\/.git##g; s#\./##g'))
-    unset IFS
-    
-    [[ ${#REPOSITORIES[@]} -eq 0 ]] && { log-warn "Nenhum repositório encontrado."; return 0; }
+  local -a repositories=()
+  readarray -t repositories < <(_git_find_repos "${current_dir}")
 
-    log-info "${C_BOLD}${#REPOSITORIES[@]}${C_CLEAR} repositórios encontrados"
-    
-    for REPOSITORY in "${REPOSITORIES[@]}"; do
-        log-info "\n${C_BOLD}${REPOSITORY//$CURRENT_DIR\//}${C_CLEAR}: Alterando para a branch ${C_BOLD}${targetBranch}${C_CLEAR} ..."
-        git -C "$REPOSITORY" checkout "${targetBranch}" >/dev/null || { log-error "Falhou ao alterar a branch\!\!"; continue; }
-        log-info "\n${C_BOLD}${REPOSITORY//$CURRENT_DIR\//}${C_CLEAR}: Atualizando repositório ..."
-        git -C "$REPOSITORY" pull                       >/dev/null || { log-error "Falhou ao atualizar a branch\!\!"; continue; }
-    done
+  if [[ ${#repositories[@]} -eq 0 ]]; then
+    log_warn "No repositories found."
+    return 0
+  fi
 
-    log-success "\n${C_SUCCESS}Atualização finalizada!${C_CLEAR}"
-}
-alias gsw='git-switch-all'
+  log_info "${C_BOLD}${#repositories[@]}${C_CLEAR} repositories found"
 
-# github-clone
-# Clona qualquer repositório do GitHub
-function github-clone() {
-    repo="${1}"
-    [[ "$repo" == "" ]] && { log-error "Informar o repositório"; return 1; }
-    git clone "https://github.com/${repo}.git"
+  local repository rel
+  for repository in "${repositories[@]}"; do
+    [[ -z "${repository}" ]] && continue
+    rel="${repository#"${current_dir}"/}"
+    log_info "${C_BOLD}${rel}${C_CLEAR}: Switching to ${C_BOLD}${target_branch}${C_CLEAR} ..."
+    if ! git -C "${repository}" checkout "${target_branch}"; then
+      log_error "Failed to switch branch"
+      continue
+    fi
+    log_info "${C_BOLD}${rel}${C_CLEAR}: Updating repository ..."
+    if ! git -C "${repository}" pull; then
+      log_error "Failed to update branch"
+      continue
+    fi
+  done
+
+  log_success "Update finished!"
 }
