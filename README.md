@@ -71,9 +71,10 @@ source use-module logs checkport
 ```
 
 `use-module` records each filename (without `.sh`) in `LOADED_MODULES`
-and skips modules that are already listed. Call it again from another
-module to declare a dependency; do not gate on colors or log functions
-yourself.
+(shell-local; not exported) and skips modules that are already listed.
+`init.sh` clears `LOADED_MODULES` on each run so `reinit` redefines
+functions. Call `source use-module` again from another module to declare
+a dependency; do not gate on colors or log functions yourself.
 
 ### init.sh
 
@@ -122,3 +123,11 @@ interactive aliases stay in place:
 | `dev` | `cd "$DEV"` |
 | `proj` | `cd` under `$PROJECTS` |
 | `wd` | `cd` under `$DEV/wd` |
+
+## AI-Assisted Development Disclaimer
+
+This project is developed with the assistance of AI tools and agents. AI may be used to write, refactor, optimize, review, and improve parts of the codebase.
+
+The use of AI in this project is free and encouraged, but should always be approached consciously and responsibly. AI-generated contributions should be reviewed, understood, and validated by humans before being considered reliable.
+
+AI assistance does not replace human judgment, code review, testing, security considerations, or responsibility for the resulting code. Contributors are encouraged to use AI as a tool to support development — not as a substitute for understanding the code or its implications.

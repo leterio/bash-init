@@ -14,6 +14,10 @@ if [[ -z "${BASH_INIT:-}" ]]; then
   return 1
 fi
 
+# Drop stale load marks from a previous interactive session / reinit so
+# modules are sourced again and their functions are redefined.
+unset LOADED_MODULES
+
 #######################################
 # Print an epoch timestamp in milliseconds.
 # Outputs:
@@ -43,9 +47,6 @@ for sh in "${BASH_INIT}/"*_init_*.sh; do
   fi
 done
 
-if [[ -r /proc/uptime ]]; then
-  echo -e "${C_GREEN:-}Kernel up $(awk '{printf "%.0f", $1 * 1000}' /proc/uptime)ms${C_CLEAR:-}"
-fi
 echo -e "${C_GREEN:-}Started in $(( $(_init_now_ms) - START_TIME ))ms${C_CLEAR:-}"
 
 unset START_TIME

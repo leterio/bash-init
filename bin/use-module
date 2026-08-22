@@ -5,51 +5,62 @@
 #
 # Tracks loaded modules in LOADED_MODULES (space-separated filenames
 # without .sh). A module already listed is skipped.
+#
+# Loading runs at top level (not inside a function): bash would otherwise
+# treat functions defined by sourced modules as local and drop them on return.
+# Nested re-entry (a module doing `source use-module …`) uses a depth counter
+# so each frame keeps its own status/name slots.
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "error: use-module must be sourced (e.g. source use-module <module>)" >&2
+  exit 1
+fi
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: source use-module <module> [module...]" >&2
   return 1
 fi
 
-#######################################
-# Source modules from <use-module-dir>/modules if they are not already loaded.
-# Globals:
-#   LOADED_MODULES
-# Arguments:
-#   Module filenames without .sh.
-# Returns:
-#   0 if every module loaded or was already loaded, 1 if any is missing.
-#######################################
-function use_module() {
-  local submodule
-  local module_path
-  local status=0
-  local modules_dir
-  modules_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/modules" && pwd)"
+_USE_MODULE_SELF="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
+_USE_MODULE_DEPTH=$((${_USE_MODULE_DEPTH:-0} + 1))
 
-  LOADED_MODULES="${LOADED_MODULES:-}"
+eval "_um_status_${_USE_MODULE_DEPTH}=0"
+LOADED_MODULES="${LOADED_MODULES:-}"
 
-  for submodule in "$@"; do
-    if [[ " ${LOADED_MODULES} " == *" ${submodule} "* ]]; then
-      continue
-    fi
+for _um_arg in "$@"; do
+  if [[ " ${LOADED_MODULES} " == *" ${_um_arg} "* ]]; then
+    continue
+  fi
 
-    module_path="${modules_dir}/${submodule}.sh"
-    if [[ ! -f "${module_path}" || ! -r "${module_path}" ]]; then
-      echo -e "${C_ERROR:-}Module \"${submodule}\" not found!${C_CLEAR:-}" >&2
-      status=1
-      continue
-    fi
-    # shellcheck disable=SC1090
-    if ! source "${module_path}"; then
-      status=1
-      continue
-    fi
-    LOADED_MODULES="${LOADED_MODULES:+${LOADED_MODULES} }${submodule}"
-  done
+  _um_path="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/modules" && pwd)/${_um_arg}.sh"
+  if [[ ! -f "${_um_path}" || ! -r "${_um_path}" ]]; then
+    echo -e "${C_ERROR:-}Module \"${_um_arg}\" not found!${C_CLEAR:-}" >&2
+    eval "_um_status_${_USE_MODULE_DEPTH}=1"
+    continue
+  fi
 
-  export LOADED_MODULES
-  return "${status}"
-}
+  eval "_um_loading_${_USE_MODULE_DEPTH}=\${_um_arg}"
+  # shellcheck disable=SC1090
+  if ! source "${_um_path}"; then
+    eval "_um_status_${_USE_MODULE_DEPTH}=1"
+    continue
+  fi
+  # Re-read depth slot after nested source use-module returns.
+  eval "_um_loaded=\${_um_loading_${_USE_MODULE_DEPTH}}"
+  LOADED_MODULES="${LOADED_MODULES:+${LOADED_MODULES} }${_um_loaded}"
+done
 
-use_module "$@"
+# Shell-local only: exporting would survive reinit and skip sourcing, so
+# functions would never be redefined while exported C_* vars still appear set.
+# Nested source use-module in the same shell still sees this value.
+
+# `use_module foo` as a simple command expands to a top-level source.
+# (A real function that sources modules would hide those functions again.)
+# shellcheck disable=SC2139
+alias use_module="builtin source '${_USE_MODULE_SELF}'"
+
+eval "_um_rc=\${_um_status_${_USE_MODULE_DEPTH}}"
+eval "unset -v _um_status_${_USE_MODULE_DEPTH} _um_loading_${_USE_MODULE_DEPTH}"
+_USE_MODULE_DEPTH=$((_USE_MODULE_DEPTH - 1))
+(( _USE_MODULE_DEPTH == 0 )) && unset -v _USE_MODULE_DEPTH
+return "${_um_rc}"
