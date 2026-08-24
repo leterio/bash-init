@@ -2,13 +2,12 @@
 #
 # Assemble PS1 from PS1_FRAGMENTS, substitute {{PS1_*}} placeholders, then
 # unset those flags so they do not leak into the interactive environment.
-
 # debian_chroot is set by Debian/Ubuntu bashrc when present.
 # shellcheck disable=SC2016,SC2034,SC2154
 PS1_FRAGMENTS=(
   '\[\e]0;\u@\h: \w\a\]'                 # window title
-  '${debian_chroot:+($debian_chroot)}'    # chroot (empty at prompt if unset)
-  '\[\033[01;32m\]\u\[\033[00m\]:'       # user:
+  '${debian_chroot:+($debian_chroot)}'   # chroot (empty at prompt if unset)
+  '\[\033[01;32m\]\u@\h\[\033[00m\]: '   # user@host:
   '\[\033[01;34m\]\w'                    # cwd
   '{{PS1_GIT}}'                          # git (omitted when unset)
   '\[\033[00m\] \$ '                     # prompt
