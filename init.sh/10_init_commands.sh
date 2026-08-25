@@ -40,7 +40,7 @@ function proj() {
 
   local -a projects=()
   readarray -t projects < <(
-    find "${projects_root}" -mindepth 1 -maxdepth 2 -type d \
+    find "${projects_root}" -mindepth 1 -maxdepth 1 -type d \
       | sed "s#${projects_root}/##g" \
       | grep -a -- "${proj_name}" || true
   )

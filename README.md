@@ -19,6 +19,7 @@ Options and environment overrides:
 | `-i` | `INSTALL_DIR` | `~/.local/bin` | Where `bin/` and `init.sh/` are installed |
 | `-d` | `DEV_DIR` | `~/Development` | Development root (`DEV`) |
 | `-p` | `PROJECTS_DIR` | `<dev>/Projects` | Projects root (`PROJECTS`) |
+| `-P` | `INITPACK=1` | off | Also write `~/.local/share/init-scripts.tar.gz` |
 
 The installer:
 
@@ -26,6 +27,7 @@ The installer:
 2. Copies `bin/` into the install directory (including `modules/`).
 3. Copies `init.sh/` into `<install_dir>/init.sh`.
 4. Writes a managed INIT block into `~/.bashrc` (replaced on re-install).
+5. With `-P` or `INITPACK=1`, packs `bin/`, `init.sh/`, and `install.sh` into `~/.local/share/init-scripts.tar.gz`.
 
 Example:
 
@@ -35,6 +37,8 @@ Example:
 INSTALL_DIR=~/.local/bin DEV_DIR=~/Development ./install.sh
 # or
 ./install.sh -i ~/.local/bin -d ~/Development -p ~/Development/Projects
+# or, also write ~/.local/share/init-scripts.tar.gz
+./install.sh -P
 ```
 
 Then open a new terminal, or run `source ~/.bashrc` / `reinit`.

@@ -3,12 +3,13 @@
 # Install init-scripts into the local user environment.
 #
 # Usage (from anywhere):
-#   /path/to/init-scripts/install.sh [-i install_dir] [-d dev_dir] [-p projects_dir]
+#   /path/to/init-scripts/install.sh [-i install_dir] [-d dev_dir] [-p projects_dir] [-P]
 #
 # Defaults / overrides:
 #   -i / INSTALL_DIR   →  ~/.local/bin
 #   -d / DEV_DIR       →  ~/Development
 #   -p / PROJECTS_DIR  →  <dev_dir>/Projects
+#   -P / INITPACK=1    →  also write ~/.local/share/init-scripts.tar.gz
 #
 # Copies repo bin/ → install_dir, repo init.sh/ → install_dir/init.sh,
 # creates directories, and updates ~/.bashrc with a managed INIT block.
@@ -21,11 +22,13 @@ install_init_scripts() {
 
   usage() {
     cat >&2 <<EOF
-Usage: install.sh [-i install_dir] [-d dev_dir] [-p projects_dir]
+Usage: install.sh [-i install_dir] [-d dev_dir] [-p projects_dir] [-P]
 
   -i  Install directory for bin/ and init.sh/ (default: \$INSTALL_DIR or ~/.local/bin)
   -d  Development root (default: \$DEV_DIR or ~/Development)
   -p  Projects root (default: \$PROJECTS_DIR or <dev_dir>/Projects)
+  -P  Also pack bin/, init.sh/, and install.sh into ~/.local/share/init-scripts.tar.gz
+      (or set INITPACK=1)
 EOF
     exit 1
   }
@@ -106,19 +109,22 @@ EOF
   local dev_dir
   local projects_dir
   local bash_init_dir
+  local pack=0
   local opt
 
   repo_root="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   install_dir="${INSTALL_DIR:-${HOME}/.local/bin}"
   dev_dir="${DEV_DIR:-${HOME}/Development}"
   projects_dir="${PROJECTS_DIR:-}"
+  [[ "${INITPACK:-}" == "1" ]] && pack=1
 
   OPTIND=1
-  while getopts ':i:d:p:h' opt; do
+  while getopts ':i:d:p:Ph' opt; do
     case "${opt}" in
       i) install_dir="${OPTARG}" ;;
       d) dev_dir="${OPTARG}" ;;
       p) projects_dir="${OPTARG}" ;;
+      P) pack=1 ;;
       h) usage ;;
       *) usage ;;
     esac
@@ -160,6 +166,13 @@ EOF
   find "${repo_root}/init.sh" -maxdepth 1 -type f -exec cp -a {} "${bash_init_dir}/" \;
 
   update_bashrc "${install_dir}" "${dev_dir}" "${projects_dir}" "${bash_init_dir}"
+
+  if [[ "${pack}" -eq 1 ]]; then
+    local pack_dest="${HOME}/.local/share/init-scripts.tar.gz"
+    mkdir -p "$(dirname "${pack_dest}")"
+    echo "Packing bin/, init.sh/ → ${pack_dest}" >&2
+    tar -czf "${pack_dest}" -C "${repo_root}" bin init.sh
+  fi
 
   echo -e "\033[32mInstalled init-scripts\033[0m" >&2
   echo "Open a new terminal, or run: source ~/.bashrc" >&2

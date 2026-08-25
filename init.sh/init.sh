@@ -14,6 +14,8 @@ if [[ -z "${BASH_INIT:-}" ]]; then
   return 1
 fi
 
+echo
+
 # Drop stale load marks from a previous interactive session / reinit so
 # modules are sourced again and their functions are redefined.
 unset LOADED_MODULES
